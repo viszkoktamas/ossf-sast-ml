@@ -1,0 +1,18 @@
+{
+  "name": "js-parse-test",
+  "version": "1.0.0",
+  "description": "qwe",
+  "main": "myTool.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "acorn-loose": "^8.3.0",
+    "esprima": "^4.0.1",
+    "jscodeshift": "^0.15.0",
+    "optionator": "^0.9.3",
+    "recast": "^0.23.4"
+  }
+}
