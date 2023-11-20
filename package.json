@@ -10,8 +10,8 @@
   "license": "ISC",
   "dependencies": {
     "acorn-loose": "^8.3.0",
-    "esprima": "^4.0.1",
-    "jscodeshift": "^0.15.0",
+    "axios": "^1.6.2",
+    "glob": "^10.3.10",
     "optionator": "^0.9.3",
     "recast": "^0.23.4"
   }

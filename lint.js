@@ -2,8 +2,8 @@ const fs = require("fs");
 const acornLoose = require("acorn-loose");
 const recast = require("recast");
 const path = require('path');
-const {promisify} = require('util');
-const exec = promisify(require('child_process').exec)
+const axios = require('axios');
+const {globSync} = require('glob');
 
 function findAllFunctions(root, functionsList) {
     if (!root)
@@ -17,7 +17,12 @@ function findAllFunctions(root, functionsList) {
         return;
     if (!!root.type && root.type.includes("Function")) {
         let functionBody = recast.print(root).code;
-        functionsList.push({functionBody, startLine: root.loc.start.line, endLine: root.loc.end.line, nodeType: root.type});
+        functionsList.push({
+            functionBody,
+            startLine: root.loc.start.line,
+            endLine: root.loc.end.line,
+            nodeType: root.type
+        });
     }
     (Object.keys(root) || []).forEach(k => {
         findAllFunctions(root[k], functionsList)
@@ -32,59 +37,49 @@ function extractFunctionsFromFile(filePath) {
     return functions;
 }
 
-function isCodeDir(dirName) {
-    return !['node_modules', '.idea', 'test', 'tests', 'build', 'dist', 'assets', 'docs', 'venv'].includes(dirName);
-}
-
-function isCodeFile(fileName) {
-    let parsedFileName = path.parse(fileName);
-    return ['.js', '.ts', '.mjs', '.mts'].includes(parsedFileName.ext) && !['package'].includes(parsedFileName.name);
-}
-
-function listFiles(filePath) {
-    let pathInfo = fs.lstatSync(filePath, {throwIfNoEntry: false});
-    if (pathInfo?.isFile()) {
-        return [filePath];
-    } else if (!pathInfo?.isDirectory()) {
-        return [];
-    }
-    let files = [];
-    fs.readdirSync(filePath).forEach((fileName) => {
-        let file = filePath + path.sep + fileName;
-        let fileInfo = fs.lstatSync(file);
-        if (fileInfo.isDirectory() && isCodeDir(fileName)) files.push(...listFiles(file));
-        else if (fileInfo.isFile() && isCodeFile(fileName)) files.push(file);
-    });
-    return files;
-}
-
 function extractFunctionsFromPaths(paths, outFile) {
     if (!outFile) {
         outFile = 'result.json';
     }
     let data = [];
-    paths.forEach((path) => {
-        listFiles(path).forEach((filePath) => {
+    paths.forEach((p) => {
+        let esLintIgnorePath = p + path.sep + '.eslintignore';
+        let esLintIgnore = fs.lstatSync(esLintIgnorePath, {throwIfNoEntry: false});
+        let ignoreFiles = [];
+        if (esLintIgnore?.isFile()) {
+            const fileContent = fs.readFileSync(esLintIgnorePath, 'utf-8');
+            ignoreFiles = fileContent.split(/\r?\n/);
+        }
+        const filesList = globSync('**/*.{js,ts,mjs,mts}', {
+            ignore: ['**/node_modules/**', '**/java/**', '**/min/**', '**/dist/**', '**/*demo*/**', '**/*sample*/**', '**/*test*/**', '**/*.min.js', '**/demo.*', '**/*test*.*', '**/*jquery*.*', ...ignoreFiles],
+            cwd: p
+        }).map((fp) => p + path.sep + fp);
+        filesList.forEach((filePath) => {
+            let messages = extractFunctionsFromFile(filePath);
+            if (!messages.length) return;
             data.push({
-                filePath,
-                messages: extractFunctionsFromFile(filePath)
+                filePath: filePath,
+                messages
             });
-            data[filePath] = extractFunctionsFromFile(filePath);
         });
     });
-    fs.writeFile(outFile, JSON.stringify(data), 'utf8', (err) => {
+    fs.writeFile(outFile, JSON.stringify(data, null, 2), 'utf8', (err) => {
         if (err) console.log("Something went wrong: ", err);
     });
     return outFile;
 }
 
 const execute = async (paths, output) => {
-    console.log("Execute: (paths=", paths, ', output="'+ output+ '")')
+    console.log("Execute: (paths=", paths, ', output="' + output + '")');
     let outFile = extractFunctionsFromPaths(paths, output);
     try {
-        let cmdRes = await exec(`inference ${outFile}`);
-        let res = cmdRes.stdout.trim();
-        console.log(res);
+        const response = await axios({
+            method: 'post',
+            url: 'http://localhost:5000',
+            headers: {'Content-Type': 'application/json'},
+            data: {input_file: outFile}
+        });
+        console.log(response.data);
     } catch (e) {
         throw new Error("Could not run inference for " + outFile + ", error: " + e);
     }

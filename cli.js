@@ -7,10 +7,11 @@ module.exports = {
             console.log("CLI args: %o", args.slice(2));
         }
 
+        let opt;
         let options;
 
         try {
-            options = optionator({
+            opt = optionator({
                 prepend: "my_module [options] [dir]",
                 defaults: {
                     concatRepeatedArrays: true,
@@ -37,7 +38,8 @@ module.exports = {
                         description: "Show help"
                     }
                 ]
-            }).parse(args);
+            })
+            options = opt.parse(args);
         } catch (error) {
             console.log(error.message);
             return 2;
@@ -46,13 +48,13 @@ module.exports = {
         console.log("Parsed args: %o", options);
 
         if (options.help) {
-            console.log(options.generateHelp());
+            console.log(opt.generateHelp());
             return 0;
         }
 
         let files = options._;
         let res = await lint.execute(files, options.outputFile);
-        console.log(JSON.stringify(res))
+        console.log("Result written to:", JSON.stringify(res));
         return 0;
     }
 };

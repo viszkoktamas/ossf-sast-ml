@@ -29,41 +29,47 @@ def custom_f1(y_true, y_pred):
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
 
-def embed_function(function_string):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-    model = AutoModel.from_pretrained("microsoft/codebert-base")
-    model.to(device)
+def embed_function(model, function_string):
+    tokenizer, device, tokenizer_model = model
     code_tokens = tokenizer.tokenize(function_string)
     if len(code_tokens) > 510:
         code_tokens = code_tokens[0:510]
 
     tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.sep_token]
     tokens_ids = tokenizer.convert_tokens_to_ids(tokens)
-    context_embeddings = model(torch.tensor(tokens_ids)[None, :].to(device))[0][0][0]
+    context_embeddings = tokenizer_model(torch.tensor(tokens_ids)[None, :].to(device))[0][0][0]
     return context_embeddings.tolist()
 
 
-def inference(embedding):
+def get_tokenizer_model():
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = AutoModel.from_pretrained("microsoft/codebert-base")
+    model.to(device)
+
+    return tokenizer, device, model
+
+
+def get_inference_model():
     dir_name = os.path.dirname(os.path.abspath(__file__))
     model = tf.keras.models.load_model(os.path.join(dir_name, 'models/model.h5'), custom_objects={"custom_f1": custom_f1})
     model.add(Lambda(lambda x: K.cast(K.argmax(x), dtype='float32'), name='y_pred'))
+    return model
+
+
+def inference(model, embedding):
     return model.predict(embedding)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--input", required=True, help="path to input json containing function data")
-    args = parser.parse_args()
-    with open(args.input, 'r') as f:
+def main(input_file, inference_model, tokenizer_model):
+    with open(input_file, 'r', encoding='utf-8') as f:
         function_data = json.load(f)
 
     result_data = []
     changed = False
-    with tqdm(total=sum(sum(map(lambda a: len(a), file_data.values())) for file_data in function_data)) as pbar:
+    with tqdm(total=sum(len(file_data["messages"]) for file_data in function_data)) as pbar:
         for file_data in function_data:
             messages = []
-            has_vulnerability = False
             functions = file_data.get("messages", [])
             for f in functions:
                 function_body = f.get("functionBody")
@@ -72,11 +78,11 @@ if __name__ == "__main__":
                     continue
 
                 if "vulnerable" not in f:
-                    vector = embed_function(function_body)
-                    prediction = int(round(inference([vector])[0]))
+                    vector = embed_function(model=tokenizer_model, function_string=function_body)
+                    prediction = int(round(inference(model=inference_model, embedding=[vector])[0]))
                     f["vulnerable"] = prediction
 
-                if f["vulnerable"] == 1:
+                if f["vulnerable"]:
                     messages.append(f)
 
                 pbar.update(1)
@@ -89,7 +95,21 @@ if __name__ == "__main__":
                 })
 
     if changed:
-        with open(args.input, 'w') as f:
-            json.dump(result_data, f)
+        with open(input_file, 'w') as f:
+            json.dump(result_data, f, indent=2)
 
     print("SUCCESS")
+
+
+def get_cpu_count():
+    return torch.multiprocessing.cpu_count()
+
+
+if __name__ == "__main__":
+    print(" ----------------- CPU count:", get_cpu_count())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input", required=True, help="path to input json containing function data")
+    args = parser.parse_args()
+    i_model = get_inference_model()
+    t_model = get_tokenizer_model()
+    main(input_file=args.input, inference_model=i_model, tokenizer_model=t_model)

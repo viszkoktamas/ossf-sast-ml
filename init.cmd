@@ -1,1 +1,4 @@
-@echo offcall pip install virtualenv >nul 2>&1call python -m venv inference\venv >nul 2>&1call inference\venv\Scripts\activate.bat >nul 2>&1call pip install -r inference\requirements.txt >nul 2>&1
+call pip install virtualenv
+call python -m venv inference\venv
+call inference\venv\Scripts\activate.bat
+call pip install -r inference\requirements.txt
