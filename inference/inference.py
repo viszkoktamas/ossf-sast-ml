@@ -67,15 +67,10 @@ def inference(model, embedding):
 
 def file_name_to_pickle_prefix(file_name):
     pickle_prefix = Path('cache')
-    use_part = False
-    for part in file_name.split(os.path.sep):
-        if part == 'sources':
-            use_part = True
-            continue
-
-        if use_part:
-            pickle_prefix /= re.sub(r"[-.]", "_", part)
-
+    file_name = re.sub(r"[-.]", "_", file_name)
+    file_name_parts = file_name.split('sources')[1].split(os.path.sep)[1:]
+    pickle_prefix /= file_name_parts[0]  # cve
+    pickle_prefix /= '_'.join(file_name_parts[2:])  # file path
     return pickle_prefix
 
 

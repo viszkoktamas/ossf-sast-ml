@@ -81,6 +81,7 @@ const execute = async (paths, output) => {
         });
         console.log(response.data);
     } catch (e) {
+        fs.writeFileSync(outFile, "Could not run inference for " + outFile + ", error: " + e, 'utf8');
         throw new Error("Could not run inference for " + outFile + ", error: " + e);
     }
     return outFile;
