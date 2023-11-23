@@ -43,15 +43,17 @@ function extractFunctionsFromPaths(paths, outFile) {
     }
     let data = [];
     paths.forEach((p) => {
-        let esLintIgnorePath = p + path.sep + '.eslintignore';
-        let esLintIgnore = fs.lstatSync(esLintIgnorePath, {throwIfNoEntry: false});
         let ignoreFiles = [];
-        if (esLintIgnore?.isFile()) {
-            const fileContent = fs.readFileSync(esLintIgnorePath, 'utf-8');
-            ignoreFiles = fileContent.split(/\r?\n/);
-        }
+        let ignoreFileNames = ['.eslintignore', '.npmignore', '.gitignore'];
+        ignoreFileNames.map((fileName) => {
+            let ignoreFile = p + path.sep + fileName;
+            if (fs.lstatSync(ignoreFile, {throwIfNoEntry: false})?.isFile()) {
+                const fileContent = fs.readFileSync(ignoreFile, 'utf-8');
+                ignoreFiles.push(...fileContent.split(/\r?\n/));
+            }
+        });
         const filesList = globSync('**/*.{js,ts,mjs,mts}', {
-            ignore: ['**/node_modules/**', '**/java/**', '**/min/**', '**/dist/**', '**/*demo*/**', '**/*sample*/**', '**/*test*/**', '**/*.min.js', '**/demo.*', '**/*test*.*', '**/*jquery*.*', ...ignoreFiles],
+            ignore: ['**/node_modules/**', '**/java/**', '**/static/**', '**/spec/**',  '**/build/**', '**/docs/**', '**/*asset*/**', '**/min/**', '**/dist/**', '**/*demo*/**', '**/*sample*/**', '**/*test*/**', '**/*.min.js', '**/demo.*', '**/*test*.*', '**/*jquery*.*', ...ignoreFiles],
             cwd: p
         }).map((fp) => p + path.sep + fp);
         filesList.forEach((filePath) => {
@@ -63,9 +65,7 @@ function extractFunctionsFromPaths(paths, outFile) {
             });
         });
     });
-    fs.writeFile(outFile, JSON.stringify(data, null, 2), 'utf8', (err) => {
-        if (err) console.log("Something went wrong: ", err);
-    });
+    fs.writeFileSync(outFile, JSON.stringify(data, null, 2), 'utf8');
     return outFile;
 }
 

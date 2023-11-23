@@ -1,6 +1,10 @@
 import os
 import json
 import argparse
+import hashlib
+import pickle
+import re
+from pathlib import Path
 import torch
 import tensorflow as tf
 from tqdm import tqdm
@@ -61,14 +65,43 @@ def inference(model, embedding):
     return model.predict(embedding)
 
 
+def file_name_to_pickle_prefix(file_name):
+    pickle_prefix = Path('cache')
+    use_part = False
+    for part in file_name.split(os.path.sep):
+        if part == 'sources':
+            use_part = True
+            continue
+
+        if use_part:
+            pickle_prefix /= re.sub(r"[-.]", "_", part)
+
+    return pickle_prefix
+
+
+def load_pickled_result(pickle_file):
+    if pickle_file.exists():
+        with open(pickle_file, 'rb') as f:
+            result = pickle.load(f)
+            return result
+
+    return None
+
+
+def write_pickled_result(pickle_file, prediction):
+    pickle_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(pickle_file, 'wb') as f:
+        pickle.dump(prediction, f)
+
+
 def main(input_file, inference_model, tokenizer_model):
     with open(input_file, 'r', encoding='utf-8') as f:
         function_data = json.load(f)
 
     result_data = []
-    changed = False
     with tqdm(total=sum(len(file_data["messages"]) for file_data in function_data)) as pbar:
         for file_data in function_data:
+            pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''))
             messages = []
             functions = file_data.get("messages", [])
             for f in functions:
@@ -77,16 +110,22 @@ def main(input_file, inference_model, tokenizer_model):
                     pbar.update(1)
                     continue
 
-                if "vulnerable" not in f:
+                function_body_hash = hashlib.sha1(function_body.encode('utf-8')).hexdigest()
+                pickle_file = pickle_prefix / function_body_hash
+                pickled_result = load_pickled_result(pickle_file=pickle_file)
+                if pickled_result is not None:
+                    f["vulnerable"] = pickled_result
+
+                else:
                     vector = embed_function(model=tokenizer_model, function_string=function_body)
                     prediction = int(round(inference(model=inference_model, embedding=[vector])[0]))
                     f["vulnerable"] = prediction
+                    write_pickled_result(pickle_file=pickle_file, prediction=prediction)
 
                 if f["vulnerable"]:
                     messages.append(f)
 
                 pbar.update(1)
-                changed = True
 
             if messages:
                 result_data.append({
@@ -94,9 +133,8 @@ def main(input_file, inference_model, tokenizer_model):
                     "messages": messages
                 })
 
-    if changed:
-        with open(input_file, 'w') as f:
-            json.dump(result_data, f, indent=2)
+    with open(input_file, 'w') as f:
+        json.dump(result_data, f, indent=2)
 
     print("SUCCESS")
 
