@@ -2,7 +2,6 @@ import os
 import json
 import argparse
 import hashlib
-import pickle
 import re
 from pathlib import Path
 import torch
@@ -76,8 +75,8 @@ def file_name_to_pickle_prefix(file_name):
 
 def load_pickled_result(pickle_file):
     if pickle_file.exists():
-        with open(pickle_file, 'rb') as f:
-            result = pickle.load(f)
+        with open(pickle_file, 'r', encoding='utf-8') as f:
+            result = int(f.read())
             return result
 
     return None
@@ -85,8 +84,8 @@ def load_pickled_result(pickle_file):
 
 def write_pickled_result(pickle_file, prediction):
     pickle_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(pickle_file, 'wb') as f:
-        pickle.dump(prediction, f)
+    with open(pickle_file, 'w', encoding='utf-8') as f:
+        f.write(str(prediction))
 
 
 def main(input_file, inference_model, tokenizer_model):
@@ -105,7 +104,7 @@ def main(input_file, inference_model, tokenizer_model):
                     pbar.update(1)
                     continue
 
-                function_body_hash = hashlib.sha1(function_body.encode('utf-8')).hexdigest()
+                function_body_hash = hashlib.sha512(function_body.encode('utf-8')).hexdigest()
                 pickle_file = pickle_prefix / function_body_hash
                 pickled_result = load_pickled_result(pickle_file=pickle_file)
                 if pickled_result is not None:
