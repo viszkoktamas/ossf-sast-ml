@@ -17,7 +17,8 @@ def main():
     i_model = inference.get_inference_models()
     t_model = inference.get_tokenizer_model()
 
-    print(" ----------------- CPU count:", inference.get_cpu_count())
+    print(f" ----------------- {len(i_model)} models loaded")
+    print(f" ----------------- CPU count: {inference.get_cpu_count()}")
 
     @app.post('/')
     async def work():
