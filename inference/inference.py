@@ -53,15 +53,33 @@ def get_tokenizer_model():
     return tokenizer, device, model
 
 
-def get_inference_model():
-    dir_name = os.path.dirname(os.path.abspath(__file__))
-    model = tf.keras.models.load_model(os.path.join(dir_name, 'models/model.h5'), custom_objects={"custom_f1": custom_f1})
+def get_inference_model(model_path=None):
+    if not model_path:
+        dir_name = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(dir_name, 'models/model.h5')
+
+    model = tf.keras.models.load_model(model_path, custom_objects={"custom_f1": custom_f1})
     model.add(Lambda(lambda x: K.cast(K.argmax(x), dtype='float32'), name='y_pred'))
     return model
 
 
-def inference(model, embedding):
-    return model.predict(embedding)
+def get_inference_models(dir_name=None):
+    if not dir_name:
+        dir_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ensemble_models')
+
+    models = []
+    for model_file in [os.path.join(dir_name, f) for f in os.listdir(dir_name) if os.path.isfile(os.path.join(dir_name, f))]:
+        models.append(get_inference_model(model_path=model_file))
+
+    return models
+
+
+def inference(model, embedding, ensemble=False):
+    if not ensemble:
+        return int(round(model.predict(embedding)[0]))
+
+    model_predictions = [m.predict(embedding)[0] for m in model]
+    return int(round(sum(model_predictions)/len(model_predictions)))
 
 
 def file_name_to_pickle_prefix(file_name):
@@ -88,7 +106,7 @@ def write_pickled_result(pickle_file, prediction):
         f.write(str(prediction))
 
 
-def main(input_file, inference_model, tokenizer_model):
+def main(input_file, inference_model, tokenizer_model, ensemble=False):
     with open(input_file, 'r', encoding='utf-8') as f:
         function_data = json.load(f)
 
@@ -112,7 +130,7 @@ def main(input_file, inference_model, tokenizer_model):
 
                 else:
                     vector = embed_function(model=tokenizer_model, function_string=function_body)
-                    prediction = int(round(inference(model=inference_model, embedding=[vector])[0]))
+                    prediction = inference(model=inference_model, embedding=[vector], ensemble=ensemble)
                     f["vulnerable"] = prediction
                     write_pickled_result(pickle_file=pickle_file, prediction=prediction)
 

@@ -14,7 +14,7 @@ logging.basicConfig(filename="log.txt",
 
 def main():
     app = Quart(__name__)
-    i_model = inference.get_inference_model()
+    i_model = inference.get_inference_models()
     t_model = inference.get_tokenizer_model()
 
     print(" ----------------- CPU count:", inference.get_cpu_count())
@@ -26,7 +26,7 @@ def main():
             request_json = json.loads(data)
             input_file = request_json.get('input_file')
             if input_file:
-                inference.main(input_file=input_file, inference_model=i_model, tokenizer_model=t_model)
+                inference.main(input_file=input_file, inference_model=i_model, tokenizer_model=t_model, ensemble=True)
 
         except Exception as e:
             return jsonify("FAILURE - ", e)
