@@ -106,7 +106,27 @@ def write_pickled_result(pickle_file, prediction):
         f.write(str(prediction))
 
 
+def interval_contains(a_start, a_end, b_start, b_end):
+    return a_start <= b_start and a_end >= b_end
+
+
 def main(input_file, inference_model, tokenizer_model, ensemble=False):
+    """
+    input format:
+[
+  {
+    "filePath": "C:\\...\\karma.conf.js",
+    "messages": [
+      {
+        "functionBody": "function(config) {...}",
+        "startLine": 3,
+        "endLine": 36,
+        "nodeType": "FunctionExpression"
+      }, ...
+    ]
+  }, ...
+]
+    """
     with open(input_file, 'r', encoding='utf-8') as f:
         function_data = json.load(f)
 
@@ -114,9 +134,11 @@ def main(input_file, inference_model, tokenizer_model, ensemble=False):
     with tqdm(total=sum(len(file_data["messages"]) for file_data in function_data)) as pbar:
         for file_data in function_data:
             pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''))
-            messages = []
+            messages_map = {}
             functions = file_data.get("messages", [])
             for f in functions:
+                start = f.get("startLine", 0)
+                end = f.get("endLine", 0)
                 function_body = f.get("functionBody")
                 if not function_body:
                     pbar.update(1)
@@ -135,14 +157,25 @@ def main(input_file, inference_model, tokenizer_model, ensemble=False):
                     write_pickled_result(pickle_file=pickle_file, prediction=prediction)
 
                 if f["vulnerable"]:
-                    messages.append(f)
+                    found = False
+                    for m_start, m_data in messages_map.items():
+                        m_end = m_data["endLine"]
+                        if interval_contains(m_start, m_end, start, end):
+                            found = True
+                            break
+
+                        if interval_contains(start, end, m_start, m_end):
+                            messages_map.pop(m_start)
+
+                    if not found:
+                        messages_map[start] = f
 
                 pbar.update(1)
 
-            if messages:
+            if messages_map:
                 result_data.append({
                     "filePath": file_data.get("filePath", ""),
-                    "messages": messages
+                    "messages": list(messages_map.values())
                 })
 
     with open(input_file, 'w') as f:
