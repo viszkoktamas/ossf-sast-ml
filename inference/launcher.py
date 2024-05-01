@@ -4,7 +4,6 @@ import logging
 
 import inference
 
-
 logging.basicConfig(filename="log.txt",
                     filemode='a',
                     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -13,12 +12,13 @@ logging.basicConfig(filename="log.txt",
 
 
 def main():
+    models_folder = 'ensemble_models'
     app = Quart(__name__)
-    i_model = inference.get_inference_models()
+    i_model = inference.get_inference_models(models_folder)
     t_model = inference.get_tokenizer_model()
 
     print(f" ----------------- {len(i_model)} models loaded")
-    print(f" ----------------- CPU count: {inference.get_cpu_count()}")
+    print(f" ----------------- CPU core count: {inference.get_cpu_count()}")
 
     @app.post('/')
     async def work():
@@ -27,7 +27,8 @@ def main():
             request_json = json.loads(data)
             input_file = request_json.get('input_file')
             if input_file:
-                inference.main(input_file=input_file, inference_model=i_model, tokenizer_model=t_model, ensemble=True)
+                inference.main(input_file=input_file, inference_model=i_model, tokenizer_model=t_model, ensemble=True,
+                               run_id=models_folder)
 
         except Exception as e:
             return jsonify("FAILURE - ", e)

@@ -82,20 +82,25 @@ def inference(model, embedding, ensemble=False):
     return int(round(sum(model_predictions)/len(model_predictions)))
 
 
-def file_name_to_pickle_prefix(file_name):
+def file_name_to_pickle_prefix(file_name, run_id):
     pickle_prefix = Path('cache')
     file_name = re.sub(r"[-.]", "_", file_name)
     file_name_parts = file_name.split('sources')[1].split(os.path.sep)[1:]
     pickle_prefix /= file_name_parts[0]  # cve
     pickle_prefix /= '_'.join(file_name_parts[2:])  # file path
+    pickle_prefix /= run_id
     return pickle_prefix
 
 
 def load_pickled_result(pickle_file):
-    if pickle_file.exists():
-        with open(pickle_file, 'r', encoding='utf-8') as f:
-            result = int(f.read())
-            return result
+    try:
+        if pickle_file.exists():
+            with open(pickle_file, 'r', encoding='utf-8') as f:
+                result = int(f.read())
+                return result
+
+    except Exception as e:
+        print(f"Error loading pickled result {pickle_file}: {e}")
 
     return None
 
@@ -110,7 +115,7 @@ def interval_contains(a_start, a_end, b_start, b_end):
     return a_start <= b_start and a_end >= b_end
 
 
-def main(input_file, inference_model, tokenizer_model, ensemble=False):
+def main(input_file, inference_model, tokenizer_model, ensemble=False, run_id='run1'):
     """
     input format:
 [
@@ -133,7 +138,7 @@ def main(input_file, inference_model, tokenizer_model, ensemble=False):
     result_data = []
     with tqdm(total=sum(len(file_data["messages"]) for file_data in function_data)) as pbar:
         for file_data in function_data:
-            pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''))
+            pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''), run_id)
             messages_map = {}
             functions = file_data.get("messages", [])
             for f in functions:
@@ -189,7 +194,7 @@ def get_cpu_count():
 
 
 if __name__ == "__main__":
-    print(" ----------------- CPU count:", get_cpu_count())
+    print(" ----------------- CPU core count:", get_cpu_count())
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", required=True, help="path to input json containing function data")
     args = parser.parse_args()
