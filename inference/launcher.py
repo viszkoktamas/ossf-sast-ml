@@ -1,6 +1,7 @@
 from quart import Quart, jsonify, request
 import json
 import logging
+import os
 
 import inference
 
@@ -12,12 +13,12 @@ logging.basicConfig(filename="log.txt",
 
 
 def main():
-    models_folder = 'ensemble_models'
+    models_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ensemble_models')
     app = Quart(__name__)
-    i_model = inference.get_inference_models(models_folder)
+    i_models = inference.get_inference_models(models_folder)
     t_model = inference.get_tokenizer_model()
 
-    print(f" ----------------- {len(i_model)} models loaded")
+    print(f" ----------------- {len(i_models)} models loaded")
     print(f" ----------------- CPU core count: {inference.get_cpu_count()}")
 
     @app.post('/')
@@ -27,8 +28,7 @@ def main():
             request_json = json.loads(data)
             input_file = request_json.get('input_file')
             if input_file:
-                inference.main(input_file=input_file, inference_model=i_model, tokenizer_model=t_model, ensemble=True,
-                               run_id=models_folder)
+                inference.main(input_file=input_file, inference_models=i_models, tokenizer_model=t_model, run_id=models_folder)
 
         except Exception as e:
             return jsonify("FAILURE - ", e)

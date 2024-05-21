@@ -1,5 +1,7 @@
 import os
+import random
 import json
+import numpy as np
 import argparse
 import hashlib
 import re
@@ -10,6 +12,17 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
 from keras import backend as K
 from keras.layers import Lambda
+
+# set random values for reproducibility
+seed_value = 1337
+os.environ['PYTHONHASHSEED'] = str(seed_value)
+random.seed(seed_value)
+np.random.seed(seed_value)
+tf.random.set_seed(seed_value)
+tf.compat.v1.set_random_seed(seed_value)
+session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+tf.compat.v1.keras.backend.set_session(sess)
 
 
 def custom_f1(y_true, y_pred):
@@ -53,7 +66,7 @@ def get_tokenizer_model():
     return tokenizer, device, model
 
 
-def get_inference_model(model_path=None):
+def _get_inference_model(model_path=None):
     if not model_path:
         dir_name = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(dir_name, 'models/model.h5')
@@ -69,26 +82,25 @@ def get_inference_models(dir_name=None):
 
     models = []
     for model_file in [os.path.join(dir_name, f) for f in os.listdir(dir_name) if os.path.isfile(os.path.join(dir_name, f))]:
-        models.append(get_inference_model(model_path=model_file))
+        models.append(_get_inference_model(model_path=model_file))
 
     return models
 
 
-def inference(model, embedding, ensemble=False):
-    if not ensemble:
-        return int(round(model.predict(embedding)[0]))
-
-    model_predictions = [m.predict(embedding)[0] for m in model]
+def inference(models, embedding):
+    model_predictions = [m.predict(embedding)[0] for m in models]
     return int(round(sum(model_predictions)/len(model_predictions)))
 
 
 def file_name_to_pickle_prefix(file_name, run_id):
-    pickle_prefix = Path('cache')
+    pickle_prefix = Path(os.path.dirname(os.path.abspath(__file__))) / 'cache' / run_id
     file_name = re.sub(r"[-.]", "_", file_name)
-    file_name_parts = file_name.split('sources')[1].split(os.path.sep)[1:]
-    pickle_prefix /= file_name_parts[0]  # cve
-    pickle_prefix /= '_'.join(file_name_parts[2:])  # file path
-    pickle_prefix /= run_id
+    file_name_parts = file_name.split('sources')[-1].split(os.path.sep)
+    while file_name_parts:
+        part = file_name_parts.pop()
+        if part:
+            pickle_prefix /= part
+
     return pickle_prefix
 
 
@@ -115,7 +127,7 @@ def interval_contains(a_start, a_end, b_start, b_end):
     return a_start <= b_start and a_end >= b_end
 
 
-def main(input_file, inference_model, tokenizer_model, ensemble=False, run_id='run1'):
+def main(input_file, inference_models, tokenizer_model, run_id=None):
     """
     input format:
 [
@@ -138,7 +150,7 @@ def main(input_file, inference_model, tokenizer_model, ensemble=False, run_id='r
     result_data = []
     with tqdm(total=sum(len(file_data["messages"]) for file_data in function_data)) as pbar:
         for file_data in function_data:
-            pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''), run_id)
+            pickle_prefix = file_name_to_pickle_prefix(file_data.get("filePath", ''), run_id or 'run_1')
             messages_map = {}
             functions = file_data.get("messages", [])
             for f in functions:
@@ -157,7 +169,7 @@ def main(input_file, inference_model, tokenizer_model, ensemble=False, run_id='r
 
                 else:
                     vector = embed_function(model=tokenizer_model, function_string=function_body)
-                    prediction = inference(model=inference_model, embedding=[vector], ensemble=ensemble)
+                    prediction = inference(models=inference_models, embedding=[vector])
                     f["vulnerable"] = prediction
                     write_pickled_result(pickle_file=pickle_file, prediction=prediction)
 
@@ -193,11 +205,17 @@ def get_cpu_count():
     return torch.multiprocessing.cpu_count()
 
 
-if __name__ == "__main__":
-    print(" ----------------- CPU core count:", get_cpu_count())
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", required=True, help="path to input json containing function data")
-    args = parser.parse_args()
-    i_model = get_inference_model()
+    parser.add_argument("-m", "--models-dir", help="path to model files directory")
+    parser.add_argument("-r", "--run_id", help="run id")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    print(" ----------------- CPU core count:", get_cpu_count())
+    args = parse_args()
+    i_models = get_inference_models(dir_name=args.models_dir)
     t_model = get_tokenizer_model()
-    main(input_file=args.input, inference_model=i_model, tokenizer_model=t_model)
+    main(input_file=args.input, inference_models=i_models, tokenizer_model=t_model, run_id=args.run_id)

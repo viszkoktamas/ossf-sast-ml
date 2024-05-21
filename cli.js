@@ -4,7 +4,7 @@ const lint = require("./lint");
 module.exports = {
     async execute(args) {
         if (Array.isArray(args)) {
-            console.log("CLI args: %o", args.slice(2));
+            console.log("CLI args: " + args.slice(2));
         }
 
         let opt;
@@ -45,16 +45,13 @@ module.exports = {
             return 2;
         }
 
-        console.log("Parsed args: %o", options);
-
         if (options.help) {
             console.log(opt.generateHelp());
             return 0;
         }
 
         let files = options._;
-        let res = await lint.execute(files, options.outputFile);
-        console.log("Result written to:", JSON.stringify(res));
+        await lint.execute(files, options.outputFile);
         return 0;
     }
 };
