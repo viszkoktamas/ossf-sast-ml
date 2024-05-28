@@ -96,7 +96,7 @@ const execute = async (paths, outFile) => {
     if (!outFile) {
         outFile = 'result.json';
     }
-    console.log('output="' + outFile + '"')
+    console.log('output="' + outFile + '"');
     let data = [];
     for (let path of paths) {
         console.log("Execute: (path=", path, ', output="' + outFile + '")');
@@ -104,7 +104,9 @@ const execute = async (paths, outFile) => {
     }
     fs.writeFileSync(outFile, JSON.stringify(data, null, 2), 'utf8');
     try {
-        let cmdRes = await exec(`inference ${outFile} ./inference/models`);
+        let inferencePath = path.join(__dirname, "inference");
+        let modelPath = path.join(inferencePath, "models");
+        let cmdRes = await exec(`${inferencePath} ${outFile} ${modelPath}`);
         let res = cmdRes.stdout.trim();
         console.log(res);
     } catch (e) {
