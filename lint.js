@@ -106,7 +106,8 @@ const execute = async (paths, outFile) => {
     try {
         let inferencePath = path.join(__dirname, "inference");
         let modelPath = path.join(inferencePath, "models");
-        let cmdRes = await exec(`${inferencePath}.sh ${outFile} ${modelPath}`);
+		let isWin = process.platform === "win32";
+        let cmdRes = await exec(`${inferencePath}${isWin ? "" : ".sh"} ${outFile} ${modelPath}`);
         let res = cmdRes.stdout.trim();
         console.log(res);
     } catch (e) {
