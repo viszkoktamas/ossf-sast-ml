@@ -1,106 +1,91 @@
-import os
 import json
-import random
-import numpy as np
-import torch
-import tensorflow as tf
-from transformers import AutoTokenizer, AutoModel
-from keras import backend as K
-from keras.layers import Lambda
+import os
+import time
 
-# set random values for reproducibility
-seed_value = 1337
-os.environ['PYTHONHASHSEED'] = str(seed_value)
-random.seed(seed_value)
-np.random.seed(seed_value)
-tf.random.set_seed(seed_value)
-tf.compat.v1.set_random_seed(seed_value)
-session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
-sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
-tf.compat.v1.keras.backend.set_session(sess)
+import requests
+from dotenv import load_dotenv
 
+load_dotenv()
 
-MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ensemble_models')
+MODEL_NAME = "gemini-3.1-pro-preview"
+URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
 
+RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "file_name": {"type": "STRING"},
+            "start_line": {"type": "INTEGER"},
+            "end_line": {"type": "INTEGER"},
+            "is_vulnerable": {"type": "BOOLEAN"},
+        },
+        "required": ["file_name", "start_line", "end_line", "is_vulnerable"]
+    }
+}
 
-def _custom_f1(y_true, y_pred):
-    def recall_m(y_true, y_pred):
-        TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        Positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-
-        recall = TP / (Positives + K.epsilon())
-        return recall
-
-    def precision_m(y_true, y_pred):
-        TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        Pred_Positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-
-        precision = TP / (Pred_Positives + K.epsilon())
-        return precision
-
-    precision, recall = precision_m(y_true, y_pred), recall_m(y_true, y_pred)
-
-    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+SYSTEM_PROMPT = "You are an expert SAST tool. Evaluate each function in the list and return the JSON array."
 
 
-def _embed_function(model, function_string):
-    tokenizer, device, tokenizer_model = model
-    code_tokens = tokenizer.tokenize(function_string)
-    if len(code_tokens) > 510:
-        code_tokens = code_tokens[0:510]
+def _get_headers():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Please set the GEMINI_API_KEY environment variable.")
 
-    tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.sep_token]
-    tokens_ids = tokenizer.convert_tokens_to_ids(tokens)
-    context_embeddings = tokenizer_model(torch.tensor(tokens_ids)[None, :].to(device))[0][0][0]
-    return context_embeddings.tolist()
-
-
-def _get_tokenizer_model():
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = AutoModel.from_pretrained("microsoft/codebert-base")
-    model.to(device)
-
-    return tokenizer, device, model
+    return {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key
+    }
 
 
-def _get_inference_model(model_path=None):
-    if not model_path:
-        dir_name = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(dir_name, 'models/model.h5')
+def _get_payload(functions_list, thinking_level):
+    prompt_text = "Analyze the following functions and return the JSON array. Ensure you echo the file_name, start_line, and end_line for each result.\n\n"
+    for func in functions_list:
+        prompt_text += f"--- File: {func['file_name']} | Lines: {func['start_line']}-{func['end_line']} ---\n{func['body']}\n\n"
 
-    model = tf.keras.models.load_model(model_path, custom_objects={"custom_f1": _custom_f1})
-    model.add(Lambda(lambda x: K.cast(K.argmax(x), dtype='float32'), name='y_pred'))
-    return model
-
-
-def _get_inference_models(dir_name=None):
-    if not dir_name:
-        dir_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ensemble_models')
-
-    models = []
-    for model_file in [os.path.join(dir_name, f) for f in os.listdir(dir_name) if os.path.isfile(os.path.join(dir_name, f))]:
-        models.append(_get_inference_model(model_path=model_file))
-
-    return models
+    return {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"parts": [{"text": prompt_text}]}],
+        "generationConfig": {
+            "thinkingConfig": {"thinkingLevel": thinking_level},
+            "responseMimeType": "application/json",
+            "responseSchema": RESPONSE_SCHEMA
+        }
+    }
 
 
-def _get_prediction(models, embeddings):
-    # the embeddings parameter is always a list with exactly one element, but
-    # this is the format that keras expects for inference, so we need to run
-    # the prediction on the list, then get the first element of the result
-    model_predictions = [m.predict(embeddings)[0] for m in models]
-    return int(round(sum(model_predictions)/len(model_predictions)))
+def call_gemini(functions_list, thinking_level="HIGH", max_retries=5):
+    base_wait_time = 5
+    for attempt in range(max_retries):
+        response = requests.post(URL, headers=_get_headers(), json=_get_payload(functions_list, thinking_level))
+
+        if response.status_code == 200:
+            try:
+                return json.loads(response.json()["candidates"][0]["content"]["parts"][0]["text"])
+
+            except Exception as e:
+                raise ValueError(f"Parsing error: {str(e)}, raw: {result}")
+
+        elif response.status_code == 429:
+            if attempt < max_retries - 1:
+                wait_time = base_wait_time * (2 ** attempt)
+                time.sleep(wait_time)
+
+        elif response.status_code in [500, 503]:
+            if attempt < max_retries - 1:
+                time.sleep(10)
+
+            else:
+                raise ValueError(f"API Error {response.status_code}")
+
+        else:
+            raise ValueError(f"API Error {response.status_code}: {response.text}")
+
+    raise ValueError("Failed: Max retries reached.")
 
 
-def predict(function_body):
-    tokenizer_model = _get_tokenizer_model()
-    inference_models = _get_inference_models(MODELS_DIR)
-
-    vector = _embed_function(model=tokenizer_model, function_string=function_body)
-    prediction = _get_prediction(models=inference_models, embeddings=[vector])
-
-    return prediction
+def predict(functions_list):
+    return call_gemini(functions_list)
 
 
 if __name__ == "__main__":
