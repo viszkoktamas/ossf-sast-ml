@@ -26,6 +26,7 @@ function findAllFunctions(root, functionsList) {
         } catch (e) {
             console.error("Error while extracting function: ", e);
         }
+        return;
     }
     (Object.keys(root) || []).forEach(k => {
         findAllFunctions(root[k], functionsList)
