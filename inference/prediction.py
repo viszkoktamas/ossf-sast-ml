@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL_NAME = "gemini-3.1-pro-preview"
+MODEL_NAME = "gemini-3-pro-preview"
 URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
 
 RESPONSE_SCHEMA = {
@@ -76,7 +76,7 @@ def call_gemini(functions_list, thinking_level="HIGH", max_retries=5):
                 time.sleep(10)
 
             else:
-                raise ValueError(f"API Error {response.status_code}")
+                raise ValueError(f"API Error {response.status_code}: {response.text}")
 
         else:
             raise ValueError(f"API Error {response.status_code}: {response.text}")
