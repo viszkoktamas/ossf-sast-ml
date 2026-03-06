@@ -1,12 +1,19 @@
 import json
+import os
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 URL = "http://host.docker.internal:8765/predict"
+
+model_id = os.environ.get("MODEL_ID")
 
 
 def _get_payload(functions_list):
     return {
+        "model_id": model_id,
         "functions": [func['body'] for func in functions_list]
     }
 
